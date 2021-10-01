@@ -108,8 +108,7 @@ void t4Restart();
 //Task t1(60000, TASK_FOREVER, &t1CallgetMeter);
 //Task t2(360000, TASK_FOREVER, &t2CallsendViaNBIOT);
 
-#define trigWDTPin    32
-#define ledHeartPIN   0
+ 
 
 Scheduler runner;
 String _config = "{\"_type\":\"retrattr\",\"Tn\":\"8966031840041733110\",\"keys\":[\"epoch\",\"ip\"]}";
@@ -145,8 +144,8 @@ unsigned long ms;
    wifi client
 */
 //WiFi&OTA 参数
-String HOSTNAME = "GreenIO-";
-#define PASSWORD "green7650" //the password for OTA upgrade, can set it in any char you want
+String HOSTNAME = "Decode-";
+#define PASSWORD "7650" //the password for OTA upgrade, can set it in any char you want
 
 void configModeCallback (WiFiManager *myWiFiManager) {
   Serial.println("Entered config mode");
@@ -160,8 +159,8 @@ void setup() {
   Serial.begin(SERIAL_BAUD);
   modbus.begin(9600, SERIAL_8N1, 16, 17);
   initTFT();
-  SerialBT.begin("hyquest001"); //Bluetooth device name
-  SerialBT.println("Hello:hyquest001");
+  SerialBT.begin("Decode"); //Bluetooth device name
+  SerialBT.println("Hello:Decode");
   while (!Serial)
     ;
 
@@ -216,7 +215,7 @@ void setup() {
   tft.drawString("Wait for Wifi Setting (Timeout 60 Sec)", tft.width() / 2, tft.height() / 2, GFXFF);
   wifiManager.setTimeout(60);
   wifiManager.setAPCallback(configModeCallback);
-  String wifiName = "@GreenIO-";
+  String wifiName = "@Decode-";
   wifiName.concat(String((uint32_t)ESP.getEfuseMac(), HEX));
   if (!wifiManager.autoConnect(wifiName.c_str())) {
     //Serial.println("failed to connect and hit timeout");
@@ -224,7 +223,7 @@ void setup() {
     //    ESP.reset();
     //delay(1000);
   }
-  setupWIFI();
+
   HeartBeat();
   setupOTA();
   getepoch();
@@ -801,12 +800,12 @@ String mkTime(unsigned long epoch_) {
 }
 
 void TFTshow(unsigned long NowTime) {
-  tft.setTextSize(1.4);
-  tft.setFreeFont(NULL);
+  tft.setTextSize(1);
+  tft.setFreeFont(FMB9);
   tft.setTextColor(TFT_WHITE);
   tft.fillRect(0,30,130,10,TFT_BLACK);
   tft.fillRect(170,10,100,30,TFT_BLACK);
-  tft.drawString(mkTime(NowTime), 10,30);
+  tft.drawString(mkTime(NowTime), 0,20);
   tft.setFreeFont(FMB9);
   tft.setTextSize(1);
   int rssi = map(meta.rssi.toInt(), -110, -40, 0, 100);
@@ -817,10 +816,10 @@ void TFTshow(unsigned long NowTime) {
   else if (rssi > 24) tft.pushImage(280, 10, WifiWidth, WifiHeight, wifi2);
   else tft.pushImage(280, 10, WifiWidth, WifiHeight, wifi1);
   
-  tft.pushImage(140, 14, BatteryWidth, BatteryHeight, battery);
-  tft.drawString(String(voltMeasure(35),2)+"V",170,20);
-  tft.setFreeFont(FMB12);
-  tft.drawString("SYSTEM ID :" + deviceToken,0,60);
+  tft.pushImage(210, 14, BatteryWidth, BatteryHeight, battery);
+  tft.drawString(meter.volt+"V",240,20);
+  tft.setFreeFont(FMB9);
+  tft.drawString("ID:" + deviceToken,0,60);
   tft.pushImage(10, 90, RainWidth, RainHeight, rain);
   tft.fillRect(130,100,200,24,TFT_BLACK);
   tft.drawString("RAIN : "+ String(rainCount), 40,100);
@@ -1098,19 +1097,7 @@ String getMacAddress() {
 //********************************************************************//
 void HeartBeat() {
   //   Sink current to drain charge from watchdog circuit
-  pinMode(trigWDTPin, OUTPUT);
-  digitalWrite(trigWDTPin, LOW);
-
-  // Led monitor for Heartbeat
-  digitalWrite(ledHeartPIN, LOW);
-  delay(300);
-  digitalWrite(ledHeartPIN, HIGH);
-
-  // Return to high-Z
-  pinMode(trigWDTPin, INPUT);
-
-  Serial.println("Heartbeat");
-  SerialBT.println("Heartbeat");
+   
 }
 
 void t2CallsendViaNBIOT()
