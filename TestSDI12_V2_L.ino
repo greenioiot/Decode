@@ -9,8 +9,6 @@
 #include <ArduinoJson.h>
 #include "SPI.h"
 #include <TFT_eSPI.h>
-#include "Sensor.h"
-#include "Free_Fonts.h"
 #include <EEPROM.h>
 #include <ModbusMaster.h>
 #include <ArduinoOTA.h>
@@ -18,7 +16,8 @@
 #include <Wire.h>
 #include <WiFiManager.h>
 
-
+#include "Sensor.h"
+#include "Free_Fonts.h"
 #include "rainImg.h"
 #include "levelImg.h"
 #include "batteryImg.h"
@@ -36,22 +35,36 @@ WiFiManager wifiManager;
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
 #endif
-
+// it can use
 #define SCK  19
-#define MISO  12
+#define MISO  2
 #define MOSI  13
-#define CS  18
+#define CS  15
+
+//#define SCK  19
+//#define MISO  2
+//#define MOSI  13
+//#define CS  12
 
 TFT_eSPI tft = TFT_eSPI();
+TFT_eSprite stringsystime = TFT_eSprite(&tft);
+TFT_eSprite stringsysid = TFT_eSprite(&tft);
+TFT_eSprite stringvoltlevel = TFT_eSprite(&tft);
+TFT_eSprite stringwaterlevel = TFT_eSprite(&tft);
+TFT_eSprite stringraincount = TFT_eSprite(&tft);
+TFT_eSprite stringtimesend = TFT_eSprite(&tft);
+TFT_eSprite stringrssi = TFT_eSprite(&tft);
+TFT_eSprite stringUpdate = TFT_eSprite(&tft);
 
 #define SERIAL_BAUD 115200 /*!< The baud rate for the output serial port */
-#define DATA_PIN 13         /*!< The pin of the SDI-12 data bus */
+#define DATA_PIN 26         /*!< The pin of the SDI-12 data bus */
 #define POWER_PIN -1       /*!< The sensor power pin (or -1 if not switching power) */
 #define SENSOR_ADDRESS 0
 #define DRY_CONTACT_PIN  25
 
-String deviceToken = "wupnG4krB1CdhCIUk6W2";
-String serverIP = "103.27.203.83"; // Your Server IP;
+String deviceToken = "8966031940014308393";
+//String serverIP = "103.27.203.83"; // Your Server IP;
+String serverIP = "147.50.151.130"; // Your Server IP;
 String serverPort = "19956"; // Your Server Port;
 String json = "";
 String udpData = "";
@@ -99,16 +112,12 @@ unsigned long lastSend;
 
 const long intervalDrycontact = 1000;  //millisecond
 unsigned long previousMillisDrycontact = 0;
-void t1CallgetWaterLevel();
-void t2CallgetVoltLevel();
-void t3CallgetRain();
 
-void t4Restart();
-//TASK
-//Task t1(60000, TASK_FOREVER, &t1CallgetMeter);
-//Task t2(360000, TASK_FOREVER, &t2CallsendViaNBIOT);
+void t1CallgetRain();
+void t2CallgetMeter();
+void t3SendToThings();
 
- 
+//void t4Restart();
 
 Scheduler runner;
 String _config = "{\"_type\":\"retrattr\",\"Tn\":\"8966031840041733110\",\"keys\":[\"epoch\",\"ip\"]}";
@@ -119,10 +128,9 @@ boolean validEpoc = false;
 
 
 //TASK
-Task t1(60000, TASK_FOREVER, &t1CallgetWaterLevel);
-Task t2(60000, TASK_FOREVER, &t2CallgetVoltLevel);
-//Task t3(50, TASK_FOREVER, &t3CallgetRain);
-
+//Task t1(50, TASK_FOREVER, &t1CallgetRain);
+Task t2(60000, TASK_FOREVER, &t2CallgetMeter);
+Task t3(60000, TASK_FOREVER, &t3SendToThings);
 
 struct Meter
 {
@@ -131,14 +139,15 @@ struct Meter
   String velocity;
   String area;
   String volt;
-
 };
 Meter meter;
 
 unsigned long ms;
 
+unsigned long time_s = 0;
 
-
+bool connectWifi = false;
+struct tm timeinfo;
 
 /**********************************************  WIFI Client 注意编译时要设置此值 *********************************
    wifi client
@@ -154,6 +163,114 @@ void configModeCallback (WiFiManager *myWiFiManager) {
   Serial.println(myWiFiManager->getConfigPortalSSID());
 }
 
+void drawsystime()
+{
+  //  lastSend = epoch + ((millis() - epoch_mill) / 1000) + (7 * 3600);
+  unsigned long NowTime = epoch + ((millis() - epoch_mill) / 1000) + (7 * 3600);
+  stringsystime.createSprite(100, 20);
+  stringsystime.fillSprite(TFT_BLACK);
+  stringsystime.setFreeFont(NULL);
+  stringsystime.setTextColor(TFT_WHITE);
+  stringsystime.setTextSize(1);
+  //  stringsystime.drawString(mkTime(NowTime), 0, 20);
+  //  stringsystime.drawNumber(num, 0, 3);
+  stringsystime.drawString(mkTime(NowTime), 0, 20);
+  stringsystime.pushSprite(0, 20);
+  stringsystime.deleteSprite();
+}
+
+void drawsysid(int num, int x, int y)
+{
+  stringsysid.createSprite(50, 20);
+  stringsysid.fillSprite(TFT_GREEN);
+  stringsysid.setFreeFont(FSB9);
+  stringsysid.setTextColor(TFT_WHITE);
+  stringsysid.setTextSize(1);
+  stringsysid.drawNumber(num, 0, 3);
+  stringsysid.pushSprite(x, y);
+  stringsysid.deleteSprite();
+}
+
+void drawvoltlevel(int num, int x, int y)
+{
+  stringvoltlevel.createSprite(50, 20);
+  stringvoltlevel.fillSprite(TFT_GREEN);
+  stringvoltlevel.setFreeFont(FSB9);
+  stringvoltlevel.setTextColor(TFT_WHITE);
+  stringvoltlevel.setTextSize(1);
+  stringvoltlevel.drawNumber(num, 0, 3);
+  stringvoltlevel.pushSprite(x, y);
+  stringvoltlevel.deleteSprite();
+}
+
+void drawwaterlevel(int num, int x, int y)
+{
+  stringwaterlevel.createSprite(50, 20);
+  stringwaterlevel.fillSprite(TFT_GREEN);
+  stringwaterlevel.setFreeFont(FSB9);
+  stringwaterlevel.setTextColor(TFT_WHITE);
+  stringwaterlevel.setTextSize(1);
+  stringwaterlevel.drawNumber(num, 0, 3);
+  stringwaterlevel.pushSprite(x, y);
+  stringwaterlevel.deleteSprite();
+}
+
+void drawraincount(int num, int x, int y)
+{
+  stringraincount.createSprite(50, 20);
+  stringraincount.fillSprite(TFT_GREEN);
+  stringraincount.setFreeFont(FSB9);
+  stringraincount.setTextColor(TFT_WHITE);
+  stringraincount.setTextSize(1);
+  stringraincount.drawNumber(num, 0, 3);
+  stringraincount.pushSprite(x, y);
+  stringraincount.deleteSprite();
+}
+
+void drawrssi(int num, int x, int y)
+{
+  stringrssi.createSprite(50, 20);
+  stringrssi.fillSprite(TFT_GREEN);
+  stringrssi.setFreeFont(FSB9);
+  stringrssi.setTextColor(TFT_WHITE);
+  stringrssi.setTextSize(1);
+  stringrssi.drawNumber(num, 0, 3);
+  stringrssi.pushSprite(x, y);
+
+  int rssi = map(meta.rssi.toInt(), -110, -40, 0, 100);
+  if (rssi > 100) rssi = 100;
+  if (rssi < 0) rssi = 0;
+  if (rssi > 74) tft.pushImage(280, 10, WifiWidth, WifiHeight, wifi4);
+  else if (rssi > 49) tft.pushImage(280, 10, WifiWidth, WifiHeight, wifi3);
+  else if (rssi > 24) tft.pushImage(280, 10, WifiWidth, WifiHeight, wifi2);
+  else tft.pushImage(280, 10, WifiWidth, WifiHeight, wifi1);
+
+  stringrssi.deleteSprite();
+}
+
+//void t7showTime() {
+//  topNumber.createSprite(200, 40);
+//  //  stringPM1.fillSprite(TFT_GREEN);
+//  topNumber.setFreeFont(FS9);
+//  topNumber.setTextColor(TFT_WHITE);
+//  topNumber.setTextSize(1);           // Font size scaling is x1
+//  unsigned long NowTime = _epoch + ((millis() - time_s) / 1000) + (7 * 3600);
+//  String timeS = "";
+//  if (connectWifi == false) {
+//    timeS = a0(day(NowTime)) + "/" + a0(month(NowTime)) + "/" + String(year(NowTime)) + "  [" + a0(hour(NowTime)) + ":" + a0(minute(NowTime)) + "]";
+//  } else {
+//    if (!getLocalTime(&timeinfo)) {
+//      //Serial.println("Failed to obtain time");
+//      return;
+//    }
+//    timeS = a0(timeinfo.tm_mday) + "/" + a0(timeinfo.tm_mon + 1) + "/" + String(timeinfo.tm_year + 1900) + "  [" + a0(timeinfo.tm_hour) + ":" + a0(timeinfo.tm_min) + "]";
+//  }
+//  topNumber.drawString(timeS, 5, 10, GFXFF);
+//  //Serial.println(timeS);
+//  topNumber.pushSprite(5, 5);
+//  topNumber.deleteSprite();
+//}
+
 void setup() {
   HeartBeat();
   Serial.begin(SERIAL_BAUD);
@@ -163,7 +280,6 @@ void setup() {
   SerialBT.println("Hello:Decode");
   while (!Serial)
     ;
-
   Serial.println("Opening SDI-12 bus...");
   mySDI12.begin();
   delay(1000);  // allow things to settle
@@ -174,9 +290,9 @@ void setup() {
     digitalWrite(POWER_PIN, HIGH);
     delay(200);
   }
-  Serial.print("devie:");
+  Serial.print("device:");
   Serial.println(SENSOR_ADDRESS);
-  SerialBT.print("devie:");
+  SerialBT.print("device:");
   SerialBT.println(SENSOR_ADDRESS);
   getModel();
 
@@ -192,19 +308,21 @@ void setup() {
   pinMode(DRY_CONTACT_PIN, INPUT_PULLUP);
   attachInterrupt(DRY_CONTACT_PIN, checkRainGate, CHANGE);
   String nccid = AISnb.getNCCID();
-  //  runner.init();
-  Serial.println("Initialized scheduler");
 
-  runner.addTask(t1);
-  Serial.println("added t1");
+  runner.init();
+  Serial.println("Initialized scheduler");
+  //  runner.addTask(t1);
+  //  Serial.println("added t1");
   runner.addTask(t2);
   Serial.println("added t2");
-  //  runner.addTask(t3);
-  //  Serial.println("added t3");
+  runner.addTask(t3);
+  Serial.println("added t3");
+
   delay(2000);
-  t1.enable();  Serial.println("Enabled t1");
+  //  t1.enable();  Serial.println("Enabled t1");
   t2.enable();  Serial.println("Enabled t2");
-  //  t3.enable();  Serial.println("Enabled t3");
+  t3.enable();  Serial.println("Enabled t3");
+
 
   Serial.print("nccid:");
   Serial.println(nccid);
@@ -228,26 +346,9 @@ void setup() {
   setupOTA();
   getepoch();
   tft.fillScreen(TFT_BLACK);
-  lastSend = epoch + ((millis() - epoch_mill) / 1000) + (7 * 3600);
-  TFTshow(epoch + ((millis() - epoch_mill) / 1000) + (7 * 3600));
-
-
-
-  runner.init();
-  Serial.println("Initialized scheduler");
-
-//  runner.addTask(t1);
-//  Serial.println("added t1");
-//  runner.addTask(t2);
-//  Serial.println("added t2");
-  //  runner.addTask(t3);
-  //  Serial.println("added t3");
-  HeartBeat();
-  delay(2000);
-//  t1.enable();  Serial.println("Enabled t1");
-//  t2.enable();  Serial.println("Enabled t2");
-  //  t3.enable();  Serial.println("Enabled t3");
-  
+  //  TFTshow(epoch + ((millis() - epoch_mill) / 1000) + (7 * 3600));
+  TFTshow();
+  drawsystime();
 
   HeartBeat();
   HOSTNAME.concat(getMacAddress());
@@ -272,11 +373,18 @@ void setup() {
 void loop() {
   ArduinoOTA.handle();
   runner.execute();
-  /*unsigned long nowtime = epoch + ((millis() - epoch_mill) / 1000) + (7 * 3600);
+}
+
+void t1CallgetRain() {
+  checkRainGate();
+}
+
+void t3SendToThings() {
+  unsigned long nowtime = epoch + ((millis() - epoch_mill) / 1000) + (7 * 3600);
   //unsigned long nowtime = epoch + millis() - epoch_mill;
   Serial.print("Minute : ");
   Serial.println(minute(nowtime));
-  TFTshow(nowtime);
+  TFTshow();
   //  delay(20000);
   if (minute(nowtime) % 5 == 0 && sendFinish == false) {
     appendSD(nowtime);
@@ -284,14 +392,23 @@ void loop() {
     udpData = "{\"Tn\":\"";
     udpData.concat(deviceToken);
     udpData.concat("\",\"level\":");
-    waterLevel = "2";
-    udpData.concat(waterLevel);
+    //    waterLevel = "2";
+    //    udpData.concat(waterLevel);
+    udpData.concat(meter.waterLevel);
     udpData.concat(",\"rssi\":");
     udpData.concat(meta.rssi);
     udpData.concat(",\"rain\":");
     udpData.concat(rainCount);
     udpData.concat(",\"volt\":");
-    udpData.concat(voltLevel);
+    //    udpData.concat(voltLevel);
+    udpData.concat(meter.volt);
+
+    udpData.concat(",\"flow\":");
+    udpData.concat(meter.flow);
+    udpData.concat(",\"velocity\":");
+    udpData.concat(meter.velocity);
+    udpData.concat(",\"area\":");
+    udpData.concat(meter.area);
     udpData.concat("}");
     Serial.println(udpData);
     SerialBT.print("send:");
@@ -306,22 +423,9 @@ void loop() {
       rainCount = 0;
     }
     sendFinish = true;
-  } else if (minute(nowtime) % 15 != 0) {
+  } else if (minute(nowtime) % 5 != 0) {
     sendFinish = false;
   }
-  delay(1000);*/
-}
-
-void t1CallgetWaterLevel() {
-  getWaterLevel();
-}
-
-void t2CallgetVoltLevel() {
-  checkVoltLevel();
-}
-
-void t3CallgetRain() {
-  checkRainGate();
 }
 
 void getModel() {
@@ -390,101 +494,6 @@ float voltMeasure(int Pin)
 }
 
 boolean getResponse() {
-}
-
-void getWaterLevel() {
-  sdiResponse = "";  // clear the response string
-
-  Serial.println("start query..");
-  myCommand = String(SENSOR_ADDRESS) + "M!";
-  Serial.print("cmd:");
-  Serial.println(myCommand);  // echo command to terminal
-
-  mySDI12.sendCommand(myCommand);
-  delay(12000);  // wait a while for a response
-
-  while (mySDI12.available()) {  // build response string
-    char c = mySDI12.read();
-    if ((c != '\n') && (c != '\r')) {
-      sdiResponse += c;
-      delay(5);
-    }
-  }
-  Serial.print("  sdiResponse:");
-  Serial.println(sdiResponse);  // write the response to the screen
-
-  if (! sdiResponse.indexOf("121") > 0 ) {
-
-    int whereis_ = sdiResponse.indexOf("+");
-    Serial.println(whereis_);
-
-    if (whereis_ > 0) {
-      Serial.print("  +:");
-      waterLevel = sdiResponse.substring(whereis_, sdiResponse.length());
-      waterLevel = string2float(waterLevel);
-      Serial.println(waterLevel);
-    } else {
-      whereis_ = sdiResponse.indexOf("-");
-      if (whereis_ > 0 ) { // check for - value
-        Serial.print("  -:");
-        waterLevel = sdiResponse.substring(whereis_, sdiResponse.length());
-        waterLevel = string2float(waterLevel);
-        Serial.println(waterLevel);
-      }
-    }
-    mySDI12.clearBuffer();
-  } else {
-    delay(200);       // delay between taking reading and requesting data
-    sdiResponse = "";  // clear the response string
-
-
-    // next command to request data from last measurement
-    myCommand = String(SENSOR_ADDRESS) + "D0!";
-    Serial.print("cmd:");
-    Serial.println(myCommand);  // echo command to terminal
-
-    mySDI12.sendCommand(myCommand);
-    delay(1200);  // wait a while for a response
-    //    for (int i = 0; i < 1200000; i++);
-    while (mySDI12.available()) {  // build string from response
-      char c = mySDI12.read();
-      if ((c != '\n') && (c != '\r')) {
-        sdiResponse += c;
-        delay(5);
-      }
-    }
-    Serial.print("  sdiResponse:");
-    Serial.println(sdiResponse);  // write the response to the screen
-    if (sdiResponse.length() > 1) {
-      int whereis_ = sdiResponse.indexOf("+");
-      Serial.println(whereis_);
-      if (whereis_ > 0) {
-        Serial.print("  +:");
-        waterLevel = sdiResponse.substring(whereis_, sdiResponse.length());
-        waterLevel = string2float(waterLevel);
-        Serial.println(waterLevel);
-      } else {
-        whereis_ = sdiResponse.indexOf("-");
-        if (whereis_ > 0 ) { // check for - value
-          Serial.print("  -:");
-          waterLevel = sdiResponse.substring(whereis_, sdiResponse.length());
-          waterLevel =  string2float(waterLevel);
-          Serial.println(waterLevel);
-        }
-      }
-    }
-    mySDI12.clearBuffer();
-  }
-}
-
-void checkVoltLevel()
-{
-  float voltlev;
-  voltlev = voltMeasure(35);
-  Serial.print("Battery");
-  Serial.print(":");
-  Serial.println(voltlev);
-  voltLevel = String(voltlev, 2);
 }
 
 void checkRainGate()
@@ -799,56 +808,50 @@ String mkTime(unsigned long epoch_) {
   return String(year(epoch_)) + "-" + a0(month(epoch_)) + "-" + a0(day(epoch_)) + " " + a0(hour(epoch_)) + ":" + a0(minute(epoch_)) + ":" + a0(second(epoch_));
 }
 
-void TFTshow(unsigned long NowTime) {
-  tft.setTextSize(1);
-  tft.setFreeFont(FMB9);
-  tft.setTextColor(TFT_WHITE);
-  tft.fillRect(0,30,130,10,TFT_BLACK);
-  tft.fillRect(170,10,100,30,TFT_BLACK);
-  tft.drawString(mkTime(NowTime), 0,20);
+//void TFTshow(unsigned long NowTime) {
+
+void TFTshow() {
   tft.setFreeFont(FMB9);
   tft.setTextSize(1);
-  int rssi = map(meta.rssi.toInt(), -110, -40, 0, 100);
-  if (rssi > 100) rssi = 100;
-  if (rssi < 0) rssi = 0;
-  if (rssi > 74) tft.pushImage(280, 10, WifiWidth, WifiHeight, wifi4);
-  else if (rssi > 49) tft.pushImage(280, 10, WifiWidth, WifiHeight, wifi3);
-  else if (rssi > 24) tft.pushImage(280, 10, WifiWidth, WifiHeight, wifi2);
-  else tft.pushImage(280, 10, WifiWidth, WifiHeight, wifi1);
-  
   tft.pushImage(210, 14, BatteryWidth, BatteryHeight, battery);
-  tft.drawString(meter.volt+"V",240,20);
+  tft.drawString("V", 240, 20);
   tft.setFreeFont(FMB9);
-  tft.drawString("ID:" + deviceToken,0,60);
+  tft.drawString("SYSTEM ID:", 0, 60);
+
   tft.pushImage(10, 90, RainWidth, RainHeight, rain);
-  tft.fillRect(130,100,200,24,TFT_BLACK);
-  tft.drawString("RAIN : "+ String(rainCount), 40,100);
+  tft.fillRect(130, 100, 200, 24, TFT_BLACK);
+  tft.drawString("RAIN : ", 40, 100);
+
   tft.pushImage(10, 134, LevelWidth, LevelHeight, level);
-  tft.fillRect(140,140,190,24,TFT_BLACK);
-  tft.drawString("LEVEL : "+waterLevel, 40,140);
+  tft.fillRect(140, 140, 190, 24, TFT_BLACK);
+  tft.drawString("LEVEL : ", 40, 140);
   tft.setFreeFont(FMB9);
-  tft.fillRect(0,215,320,25,TFT_RED);
-  tft.drawString("SAVE :"+ mkTime(lastSend), 10,220);
+  tft.fillRect(0, 215, 320, 25, TFT_RED);
+  //  tft.drawString("SAVE :" + mkTime(lastSend), 10, 220);
+
 }
 
 void appendSD(unsigned long nowtime) {
   String Data = a0(day(nowtime)) + "/" + a0(month(nowtime)) + "/" + String(year(nowtime)) + " " + a0(hour(nowtime)) + ":" + a0(minute(nowtime)) + ":" + a0(second(nowtime));
   Data.concat(",");
-  Data.concat(waterLevel);
+  Data.concat(meter.waterLevel);
   Data.concat(",");
   Data.concat(rainCount);
   Data.concat(",");
-  Data.concat(voltLevel);
+  Data.concat(meter.volt);
+  Data.concat(",");
+  Data.concat(meter.flow);
+  Data.concat(",");
+  Data.concat(meter.velocity);
+  Data.concat(",");
+  Data.concat(meter.area);
   Data.concat(",");
   Data.concat(meta.rssi);
   Data.concat("\n");
-  char csvData[200];
+  char csvData[300];
   Data.toCharArray(csvData, Data.length() + 1);
   appendFile(SD, ("/data_" + a0(month(nowtime)) + "_" + String(year(nowtime)) + ".csv").c_str(), csvData);
 }
-
-
-
 
 void _writeEEPROM(String data) {
   Serial.print("Writing Data:");
@@ -865,7 +868,6 @@ void _loadConfig() {
   Serial.println(serverIP);
 }
 
-
 //char  char_to_byte(char c)
 //{
 //  if ((c >= '0') && (c <= '9'))
@@ -878,9 +880,7 @@ void _loadConfig() {
 //  }
 //}
 void _init() {
-
   Serial.println(_config);
-
   do {
     UDPSend udp = AISnb.sendUDPmsgStr(serverIP, serverPort, _config);
     dataJson = "";
@@ -888,17 +888,14 @@ void _init() {
     Serial.print("nccid:");
     Serial.println(deviceToken);
 
-
     UDPReceive resp = AISnb.waitResponse();
     AISnb.receive_UDP(resp);
     Serial.print("waitData:");
     Serial.println(resp.data);
 
-
     for (int x = 0; x < resp.data.length(); x += 2)
     {
       char c =  char_to_byte(resp.data[x]) << 4 | char_to_byte(resp.data[x + 1]);
-
       dataJson += c;
     }
     Serial.println(dataJson);
@@ -920,15 +917,11 @@ void _init() {
       Serial.print("epoch:");  Serial.println(_epoch);
       _writeEEPROM(_IP);
       Serial.println(_IP);
-
     }
     delay(5000);
     HeartBeat();
   } while (validEpoc);
-
-
 }
-
 
 void writeString(char add, String data)
 {
@@ -942,7 +935,6 @@ void writeString(char add, String data)
   EEPROM.write(add + _size, '\0'); //Add termination null character for String Data
   EEPROM.commit();
 }
-
 
 String read_String(char add)
 {
@@ -962,8 +954,6 @@ String read_String(char add)
   Serial.println(String(data));
   return String(data);
 }
-
-
 
 void setupOTA()
 {
@@ -992,11 +982,8 @@ void setupOTA()
 
   ArduinoOTA.onEnd([]()
   {
-
     SerialBT.println("Update Complete!");
     Serial.println("Update Complete!");
-
-
     ESP.restart();
   });
 
@@ -1007,15 +994,12 @@ void setupOTA()
     //int progressbar = (progress / 5) % 100;
     //int pro = progress / (total / 100);
 
-
     SerialBT.printf("Progress: %u%%\n", (progress / (total / 100)));
-
     Serial.printf("Progress: %u%%\n", (progress / (total / 100)));
     ms = millis();
     if (ms % 10000 == 0)
     {
       HeartBeat();
-
     }
   });
 
@@ -1051,19 +1035,15 @@ void setupOTA()
         break;
     }
 
-
     Serial.println(info);
     ESP.restart();
   });
-
   ArduinoOTA.begin();
 }
 
 void setupWIFI()
 {
   WiFi.setHostname(HOSTNAME.c_str());
-
-
   //等待5000ms，如果没有连接上，就继续往下
   //不然基本功能不可用
   byte count = 0;
@@ -1073,13 +1053,10 @@ void setupWIFI()
     delay(500);
     Serial.print(".");
   }
-
-
   if (WiFi.status() == WL_CONNECTED)
     Serial.println("Connecting...OK.");
   else
     Serial.println("Connecting...Failed");
-
 }
 
 String getMacAddress() {
@@ -1097,7 +1074,7 @@ String getMacAddress() {
 //********************************************************************//
 void HeartBeat() {
   //   Sink current to drain charge from watchdog circuit
-   
+
 }
 
 void t2CallsendViaNBIOT()
@@ -1105,7 +1082,6 @@ void t2CallsendViaNBIOT()
   meta = AISnb.getSignal();
 
   Serial.print("RSSI:"); Serial.println(meta.rssi);
-
   json = "";
   json.concat("{\"Tn\":\"");
   json.concat(deviceToken);
@@ -1147,27 +1123,22 @@ void readMeter()
   meter.area = read_Modbus(_area);
   delay(1000);
   meter.volt = read_Modbus(_volt);
- 
   Serial.print("meter.waterLevel:"); Serial.println( meter.waterLevel);
   Serial.print("meter.flow:"); Serial.println( meter.flow);  //Voltage Unbalance L-N Worst
   Serial.print("meter.velocity:"); Serial.println( meter.velocity);
   Serial.print("meter.area:"); Serial.println( meter.area);
   Serial.print("meter.volt:"); Serial.println( meter.volt);  //Voltage Unbalance L-N Worst
-
   Serial.println("");
-  
 }
 
-void t1CallgetMeter() {     // Update read all data
+void t2CallgetMeter() {     // Update read all data
   readMeter();
 }
 
 float HexTofloat(uint32_t x)
 {
-
   return (*(float*)&x);
 }
-
 
 float read_Modbus(uint16_t  REG)
 {
@@ -1182,24 +1153,20 @@ float read_Modbus(uint16_t  REG)
 
   // slave: read (6) 16-bit registers starting at register 2 to RX buffer
   result = node.readHoldingRegisters(REG, 2);
-  Serial.print("result:");Serial.print(result); Serial.print(" node.ku8MBSuccess:");Serial.println(node.ku8MBSuccess);
+  Serial.print("result:"); Serial.print(result); Serial.print(" node.ku8MBSuccess:"); Serial.println(node.ku8MBSuccess);
   // do something with data if read is successful
   if (result == node.ku8MBSuccess)
   {
     for (j = 0; j < 2; j++)
     {
       data[j] = node.getResponseBuffer(j);
-//      SerialBT.print(REG); SerialBT.print(":"); SerialBT.print(j); SerialBT.print(":");  SerialBT.println(data[j]);
+      //      SerialBT.print(REG); SerialBT.print(":"); SerialBT.print(j); SerialBT.print(":");  SerialBT.println(data[j]);
       Serial.print(REG); Serial.print(":"); Serial.print(j); Serial.print(":");  Serial.println(data[j]);
-
     }
     value = data[0];
     value = value << 16;
     value = value + data[1];
- 
     val = HexTofloat(value);
-
-
     return val;
   } else {
     Serial.print("Connec modbus fail. REG >>> "); Serial.println(REG, HEX); // Debug
@@ -1207,6 +1174,7 @@ float read_Modbus(uint16_t  REG)
     return 0;
   }
 }
+
 String decToHex(int decValue) {
 
   String hexString = String(decValue, HEX);
@@ -1219,18 +1187,16 @@ unsigned int hexToDec(String hexString) {
   int nextInt;
 
   for (int i = 0; i < hexString.length(); i++) {
-
     nextInt = int(hexString.charAt(i));
     if (nextInt >= 48 && nextInt <= 57) nextInt = map(nextInt, 48, 57, 0, 9);
     if (nextInt >= 65 && nextInt <= 70) nextInt = map(nextInt, 65, 70, 10, 15);
     if (nextInt >= 97 && nextInt <= 102) nextInt = map(nextInt, 97, 102, 10, 15);
     nextInt = constrain(nextInt, 0, 15);
-
     decValue = (decValue * 16) + nextInt;
   }
-
   return decValue;
 }
+
 int getResult( unsigned int x_high, unsigned int x_low)
 {
   String hex2 = "";
